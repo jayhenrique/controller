@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Bluewing Controller Test</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #111; color: #eee; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; min-height: 100vh; padding: 16px;
+    touch-action: none;
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 16px; color: #4fc3f7; }
+  #connect-panel, #controller-panel { width: 100%; max-width: 420px; }
+  #controller-panel { display: none; }
+  label { display: block; font-size: 0.85rem; margin: 12px 0 4px; color: #aaa; }
+  input {
+    width: 100%; padding: 12px; font-size: 1rem; border-radius: 8px;
+    border: 1px solid #333; background: #1e1e1e; color: #eee;
+  }
+  button {
+    width: 100%; padding: 14px; font-size: 1rem; font-weight: 600;
+    border: none; border-radius: 8px; margin-top: 16px; cursor: pointer;
+    background: #4fc3f7; color: #000;
+  }
+  button:disabled { opacity: 0.4; }
+  #status {
+    margin-top: 12px; padding: 10px; border-radius: 8px; font-size: 0.85rem;
+    background: #1e1e1e; border: 1px solid #333; word-break: break-all;
+    min-height: 2.2em; font-family: monospace;
+  }
+  #status.ok { border-color: #2e7d32; color: #81c784; }
+  #status.err { border-color: #c62828; color: #e57373; }
+  #log {
+    margin-top: 12px; height: 120px; overflow-y: auto; font-size: 0.75rem;
+    background: #0a0a0a; border: 1px solid #333; border-radius: 8px;
+    padding: 8px; font-family: monospace; white-space: pre-wrap;
+  }
+  .dpad {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    margin: 16px 0;
+  }
+  .dpad button {
+    aspect-ratio: 1; margin: 0; font-size: 1.4rem; padding: 0;
+    background: #263238; color: #4fc3f7; border: 2px solid #37474f;
+  }
+  .dpad button:active, .action:active { background: #4fc3f7; color: #000; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+  .action {
+    padding: 24px; margin: 0; font-size: 1.1rem;
+    background: #37474f; color: #fff; border: 2px solid #546e7a;
+  }
+  .action.a { background: #2e7d32; border-color: #43a047; }
+  .action.b { background: #c62828; border-color: #e53935; }
+  .spacer { visibility: hidden; }
+  #disconnect {
+    background: #455a64; color: #eee; margin-top: 16px;
+  }
+</style>
+</head>
+<body>
+
+<h1>🎮 Bluewing Controller</h1>
+
+<div id="connect-panel">
+  <label>Server URL</label>
+  <input id="url" type="text" value="ws://192.168.1.100:6121" placeholder="ws://IP:PORT">
+  <button id="connect-btn">Connect</button>
+  <div id="status">Not connected</div>
+  <div id="log"></div>
+</div>
+
+<div id="controller-panel">
+  <div id="status2" class="ok" style="margin-bottom:8px;">Connected ✓</div>
+
+  <div class="dpad">
+    <div class="spacer"></div>
+    <button data-cmd="UP">▲</button>
+    <div class="spacer"></div>
+    <button data-cmd="LEFT">◀</button>
+    <button data-cmd="DOWN">▼</button>
+    <button data-cmd="RIGHT">▶</button>
+  </div>
+
+  <div class="actions">
+    <button class="action a" data-cmd="A">A</button>
+    <button class="action b" data-cmd="B">B</button>
+  </div>
+
+  <button id="disconnect">Disconnect</button>
+  <div id="log2" style="margin-top:12px; height:80px; overflow-y:auto; font-size:0.75rem; background:#0a0a0a; border:1px solid #333; border-radius:8px; padding:8px; font-family:monospace;"></div>
+</div>
+
+<script>
+(function() {
+  const urlInput = document.getElementById('url');
+  const connectBtn = document.getElementById('connect-btn');
+  const connectPanel = document.getElementById('connect-panel');
+  const controllerPanel = document.getElementById('controller-panel');
+  const status = document.getElementById('status');
+  const status2 = document.getElementById('status2');
+  const logEl = document.getElementById('log');
+  const logEl2 = document.getElementById('log2');
+  const disconnectBtn = document.getElementById('disconnect');
+
+  let ws = null;
+
+  function log(msg, target) {
+    const el = target || logEl;
+    const t = new Date().toLocaleTimeString();
+    el.textContent += `[${t}] ${msg}\n`;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function setStatus(msg, cls) {
+    status.textContent = msg;
+    status.className = cls || '';
+  }
+
+  function showController() {
+    connectPanel.style.display = 'none';
+    controllerPanel.style.display = 'block';
+  }
+  function showConnect() {
+    connectPanel.style.display = 'block';
+    controllerPanel.style.display = 'none';
+  }
+
+  function connect() {
+    let url = urlInput.value.trim();
+    if (!url) { setStatus('Enter a URL', 'err'); return; }
+    if (!/^wss?:\/\//i.test(url)) url = 'ws://' + url;
+
+    setStatus('Connecting to ' + url + ' ...');
+    log('Connecting → ' + url);
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      setStatus('Invalid URL: ' + e.message, 'err');
+      log('Error: ' + e.message);
+      return;
+    }
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      setStatus('Connected ✓', 'ok');
+      log('OPEN');
+      showController();
+      logEl2.textContent = '';
+      log('Connected. Sending HELLO...', logEl2);
+      send('HELLO');
+    };
+
+    ws.onmessage = (ev) => {
+      let data = ev.data;
+      if (data instanceof ArrayBuffer) {
+        // Convert binary to hex for logging
+        const bytes = new Uint8Array(data);
+        const hex = Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join(' ');
+        log('BIN ' + bytes.length + 'B: ' + hex.slice(0, 200), logEl2);
+      } else {
+        log('RECV: ' + data, logEl2);
+      }
+    };
+
+    ws.onerror = () => {
+      log('ERROR');
+      setStatus('Connection error', 'err');
+    };
+
+    ws.onclose = (ev) => {
+      log('CLOSE code=' + ev.code + ' reason=' + (ev.reason || ''));
+      setStatus('Disconnected (code ' + ev.code + ')', 'err');
+      showConnect();
+      ws = null;
+    };
+  }
+
+  function send(cmd) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      log('Cannot send: not connected', logEl2);
+      return;
+    }
+    try {
+      ws.send(cmd);
+      log('SEND: ' + cmd, logEl2);
+    } catch (e) {
+      log('Send error: ' + e.message, logEl2);
+    }
+  }
+
+  connectBtn.addEventListener('click', connect);
+  urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
+
+  disconnectBtn.addEventListener('click', () => {
+    if (ws) ws.close();
+  });
+
+  // Bind dpad + action buttons (press only, no release for test)
+  document.querySelectorAll('[data-cmd]').forEach(btn => {
+    const cmd = btn.dataset.cmd;
+
+    // touch + mouse friendly
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      send(cmd);
+    });
+    btn.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      send(cmd + '_UP'); // release event, handy for held keys
+    });
+    btn.addEventListener('pointercancel', () => send(cmd + '_UP'));
+    btn.addEventListener('pointerleave', () => send(cmd + '_UP'));
+  });
+})();
+</script>
+</body>
+</html>
