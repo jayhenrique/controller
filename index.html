@@ -144,18 +144,19 @@
     }
     ws.binaryType = 'arraybuffer';
 
-ws.onopen = () => {
-  setStatus('Connected ✓', 'ok');
-  log('OPEN');
-  showController();
-  // Do not send any messages immediately, wait for approval
-  log('Connected. Waiting for approval...', logEl2);
-};
+    // Do NOT send anything here. The browser's WebSocket "open" only means
+    // the TCP/HTTP upgrade handshake finished. The Lacewing protocol-layer
+    // approval may still be pending, and sending now will get us dropped.
+    ws.onopen = () => {
+      setStatus('Connected ✓ (waiting for Lacewing approval)', 'ok');
+      log('OPEN — not sending anything, waiting for approval');
+      showController();
+      status2.textContent = 'Connected ✓ — tap a button to test';
+    };
 
     ws.onmessage = (ev) => {
       let data = ev.data;
       if (data instanceof ArrayBuffer) {
-        // Convert binary to hex for logging
         const bytes = new Uint8Array(data);
         const hex = Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join(' ');
         log('BIN ' + bytes.length + 'B: ' + hex.slice(0, 200), logEl2);
@@ -177,6 +178,8 @@ ws.onopen = () => {
     };
   }
 
+  // Debounced send: first user-initiated tap will be the FIRST message
+  // the server receives after approval. No automatic traffic at all.
   function send(cmd) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       log('Cannot send: not connected', logEl2);
@@ -197,21 +200,16 @@ ws.onopen = () => {
     if (ws) ws.close();
   });
 
-  // Bind dpad + action buttons (press only, no release for test)
+  // Bind dpad + action buttons.
+  // IMPORTANT: only send on pointerdown. Do NOT send release events
+  // ("_UP") in this test — pointerup/pointercancel/pointerleave fire
+  // immediately in some mobile browsers and can race the approval handshake.
   document.querySelectorAll('[data-cmd]').forEach(btn => {
     const cmd = btn.dataset.cmd;
-
-    // touch + mouse friendly
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       send(cmd);
     });
-    btn.addEventListener('pointerup', (e) => {
-      e.preventDefault();
-      send(cmd + '_UP'); // release event, handy for held keys
-    });
-    btn.addEventListener('pointercancel', () => send(cmd + '_UP'));
-    btn.addEventListener('pointerleave', () => send(cmd + '_UP'));
   });
 })();
 </script>
